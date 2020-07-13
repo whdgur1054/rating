@@ -1,5 +1,6 @@
 from selenium import webdriver
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.common.exceptions import TimeoutException
 from bs4 import BeautifulSoup
 import pymysql
 import datetime
@@ -7,9 +8,10 @@ import time
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver import ActionChains
+import emoji
 
 conn = pymysql.connect(host = 'localhost', user = 'test', password = 'testing',
-                       db = 'test', charset='utf8')
+                       db = 'test2', charset='utf8mb4')
 curs = conn.cursor()
 #sql = "select * from game_info"
 #curs.execute(sql)
@@ -22,10 +24,11 @@ print("\n\n")
 #url = "https://store.steampowered.com/app/397540"
 #driver = webdriver.Chrome()
 driver = webdriver.Chrome(ChromeDriverManager().install())
+driver.set_page_load_timeout(10)
 #driver.implicitly_wait(5)
 
 
-f_r = open("applist_1.txt",'r')
+f_r = open("applist.txt",'r')
 lines = f_r.readlines()
 
 
@@ -49,14 +52,20 @@ def setting():
     language = driver.find_element_by_id("language_pulldown")
     language.click()
     driver.find_element_by_xpath('//*[@onclick="ChangeLanguage( \'koreana\' ); return false;"]').click()
-    #driver.implicitly_wait(15)
+    driver.implicitly_wait(15)
     time.sleep(1)
+
 
 setting()
 
-for i in range(35000,36000):
+for i in range(20000,20000):
     url = "https://store.steampowered.com/app/" + lines[i]
-    driver.get(url)
+    try:
+        driver.get(url)
+    except TimeoutException as e:
+        i+=1
+        print("***************%d" %i)
+        continue
     bsObject = BeautifulSoup(driver.page_source, 'html.parser')
     print("\t*****%d*****" %i)
 
@@ -106,6 +115,12 @@ for i in range(35000,36000):
     elif(type.find("모든 사운드트랙")>0):
         print("soundtrack")
         continue
+    elif(type.find("모든 비디오")>0):
+        print("Video")
+        continue
+    elif(type.find("디자인과 일러스트레이션")>0):
+        print("Design")
+        continue
         
     try:                                                                                                    #Get_Publisher and Developer
         dev = dev_row[2].text.rstrip('\n')
@@ -128,9 +143,13 @@ for i in range(35000,36000):
         release = datetime.datetime.strptime(release, '%Y년 %m월 %d일').date()
     except:
         try:
-            release = datetime.datetime.strptime(release, '%b, %Y').date()
+            release = datetime.datetime.strptime(release, '%Y년 %b월').date()
         except:
-            release = 00000000
+            try:
+                if(bsObject.find('div',{'class' : 'date'}).get_text().find('TSD')):
+                    release = datetime.datetime.strptime('2999-12-31', '%Y-%m-%d')
+            except:
+                release = 00000000
     print("%s" %release)
 
 
@@ -179,21 +198,28 @@ for i in range(35000,36000):
     try:                                                                                                    #Get_GameRate
         point_all = bsObject.find('div',{'itemprop' : "aggregateRating"}).get_text()
         temp = point_all.find('%')
-        point = point_all[temp-2:temp]
-        temp_start = point_all.find('the')
-        temp_end = point_all.find('user')
-        user_num = int (point_all[temp_start+4 : temp_end].strip().replace(",",""))
+        point = point_all[temp-3:temp].strip()
+        temp_start = point_all.find("사용자 평가")
+        temp_end = point_all.find("개")
+        user_num = int (point_all[temp_start+7 : temp_end].strip().replace(",",""))
     except:
         user_num = 0
         point = 0
     print("%s" %point)
     print("%d" %user_num)
 
-    
+
+    try:                                                                                                    #Get_Meta_Score
+        meta_score = bsObject.find('div',{'class' : "score high"}).get_text().strip()
+    except:
+        meta_score = 0
+    print(meta_score)
+        
     try:                                                                                                    #Set_MySQL
-        sql = "insert into game_info value (%s, %s, %s, %s, %s, %s, %s, %s, %s)" 
-        curs.execute(sql, (title, type, price, dev, pub, release, point, user_num, desc))
-        sql = "insert into game_genre value (%s, %s, %s, %s)"
+        sql = "insert ignore into game_info values (NULL,%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)" 
+        curs.execute(sql, (title, type, price, dev, pub, release, point, user_num, meta_score, desc, url))
+        #conn.commit()
+        sql = "insert ignore into game_genre values (NULL,%s, %s, %s, %s)"
         curs.execute(sql, (title, genre_1, genre_2, genre_3))
         conn.commit()
     except Exception as e:
